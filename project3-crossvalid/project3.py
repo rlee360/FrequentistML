@@ -39,9 +39,8 @@ for i in np.arange(0,nfolds):
     # randomly permutate before splitting into 10 ?
     one_fold = np.floor(num_data/nfolds)
     left_out_row_indices = np.arange(i*one_fold,(i+1)*one_fold)
-    left_out = data[left_out_row_indices,:]
-    testX = left_out[::,0:p-1]
-    testY = left_out[::,-1]
+    testX = X[left_out_row_indices,::]
+    testY = Y[left_out_row_indices,::]
     
     # left_in_row_indices = np.arange(0,i*one_fold-1)
     temp = np.delete(data,row_indices,p)  # get rid of the left_out part
