@@ -1,7 +1,7 @@
 # CODE REVIEW THURS 7/21
 
 import numpy as np
-from sklearn.model_selection import train_test_split
+# from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 import random
 
@@ -11,11 +11,11 @@ np.random.seed(0)
 # textbook's Gaussian random vectors
 
 num_data = 50
-p = 1
+p = 50
 
 X = np.random.randn(num_data, p)   
 #Y = np.random.randint(low=0, high=2, size=num_data)  # 50% 0's, 50% 1's
-Y = random.shuffle(25*[0] + 25*[1])
+Y = np.array(25*[0] + 25*[1]) # check le messenger
 
 # train_test_split we will need to use kfold instead
 #train_test_split(dataX, dataY, test_size=(valid_ratio+test_ratio), random_state=rand_seed)
@@ -31,48 +31,86 @@ k = 1  # how many nearest neighbors to use in the k-nearest neighbors
 # correct way of doing cross-validation
 #---------------------------------------------
 
-threshold = 0.1
-percent = np.zeros(10)
-nfolds = 10
+threshold = 0.01  # threshold used to determine which predictors will be left in the model
+num_folds = 10
+percent = np.zeros(num_folds)
+num_test = int(num_data/num_folds)  # one_fold = num_test
+num_train = num_data - num_test
 
-for i in np.arange(0,nfolds):
+# if we're going to call what comes next cross-validation,
+# we should randomly shuffle the rows of both X and Y (in unison!) before breaking in folds
+# (even though we know an extra shuffling won't really change anything because they're so random already)
+
+perm = np.random.permutation(num_data)
+X = X[perm]
+Y = Y[perm]
+
+'''
+For reference:
+In [7]: d                                                                       
+Out[7]: 
+array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9],
+       [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+       [20, 21, 22, 23, 24, 25, 26, 27, 28, 29]])
+
+In [8]: d[::,2]                                                                 
+Out[8]: array([ 2, 12, 22])
+'''
+
+for i in np.arange(0,num_folds):
     # randomly permutate before splitting into 10 ?
-    one_fold = np.floor(num_data/nfolds)
-    left_out_row_indices = np.arange(i*one_fold,(i+1)*one_fold)
-    testX = X[left_out_row_indices,::]
-    testY = Y[left_out_row_indices,::]
+    test_row_indices = list(range(i*num_test,(i+1)*num_test)) #np.arange(i*num_test,(i+1)*num_test)  # the rows that for the hold-out set
+    #test_row_indices = np.array([int(i) for i in test_row_indices])
+    testX = X[test_row_indices]  # [ ,::]
+    testY = Y[test_row_indices]
     
     # left_in_row_indices = np.arange(0,i*one_fold-1)
-    temp = np.delete(data,row_indices,p)  # get rid of the left_out part
-    X = temp[:,0:p-1]
-    Y = temp[:,-1]
+    trainX = np.delete(X,test_row_indices,axis=0)  # leave the hold-out set in the training set - expensive-sh? operation though...
+    trainY = np.delete(Y,test_row_indices,axis=0)
 
     # testing for univariate correlation
 
     rho = np.zeros(p)
 
     for j in np.arange(0,p):
-        x = X[:,j]
-    # CHANGE
-        C = cov(x,Y)
-        rho(j) = C(1,2)/sqrt(C(1,1)*C(2,2))
+        x = trainX[::,j]  # a column consisting of a single predictor
+        R = np.corrcoef(x,trainY)  # a matrix
+        rho[j] = R[0,1]
 
-    indices = find(abs(rho)>=threshold)
+    # retain only the "good" predictors in the model
+    # "good" is taken to mean: corr coef >= threshold
+
+    # Zoinks:
+#   indices ahahaha
+#   array([[0]]) < an array of a list of a list!    hmm
+    indices = np.where(abs(rho)>=threshold)  # aight. The output of argwhere is not suitable for indexing arrays. For this purpose use nonzero(a) instead.
     
-    # use only the "good" predictors in the model
-    X1 = X[:,indices]
-    X1 = (X1 - mean(X1))/std(X1)  # normalize it (z-score)
-    testX = testX[:,indices]
-    testX = (testX-mean(testX))/std(testX)  # normalize
+    #temp = np.transpose(trainX) #this sorta fixes it
+    # trainX = np.transpose(temp[indices])
+    trainX = trainX[::,indices[0]]  #fix...
+    trainX = (trainX - np.mean(trainX,axis=0))/np.std(trainX,axis=0)  # normalize
+    # convert to z-score so that Euclidean distance doesn't
+    # give more weight to predictors with a higher standard deviation
     
+ 
+    # temp = np.transpose(testX) #this sorta fixes it
+    # testX = np.transpose(temp[indices])
+    testX = testX[::,indices[0]]
+    testX = (testX - np.mean(testX,axis=0))/np.std(testX,axis=0)  # normalize
+    
+    
+    #trainX has too many dimensions in line 9x. KNN is having trouble
+    # np.shape(trainX)
+    # (45, 1, 1)
     # test
     neigh = KNeighborsClassifier(n_neighbors=k)
-    neigh.fit(X1,Y)
+    neigh.fit(trainX,trainY)
     y_hat = neigh.predict(testX)
-    [~,percent(i)] = biterr(testY,y_hat)
+    percent[i] = sum(testY != y_hat)/num_test # print((1*(testY != y_hat))/num_test)
     
 
-pred_error_right_way = mean(percent)
+pred_error_right_way = np.mean(percent)
+print(pred_error_right_way)
 
 
 #----------------------------------------------------------
@@ -81,48 +119,48 @@ pred_error_right_way = mean(percent)
 
 # testing for univariate correlation
 
-threshold = 0.1
+# threshold = 0.1  # threshold used to determine which predictors will be left in the model
 rho = np.zeros(p)
-X = data[:,0:p-1]
-Y = data[:,-1]
 
 for j in np.arange(0,p):
-    x = X[:,j]
-    C = cov(x,Y)
-    rho(j) = C(1,2)/sqrt(C(1,1)*C(2,2))
-end
+    x = X[:,j]  # a column consisting of a single predictor
+    R = np.corrcoef(x,Y)  # returns a matrix
+    rho[j] = R[0,1]
 
-indices = find(abs(rho)>=threshold)
+indices = np.where(abs(rho)>=threshold)
 
 # (erroneously) estimate generalization error by faux cross-validation
 
-for i in np.arange(0,10):
+X = X[::,indices[0]]  # it's ok to mute X now since this is the last time it's being used
+# I see that sleep eludes you too my friend
+# 
+# X and Y were already shuffled earlier
+
+for i in np.arange(0,num_folds):
     # randomly permutate before splitting into 10 ?
     # no because it's already pretty randomly arranged ?
-    row_indices = 1+(i-1)*150:152+(i-1)*150
-    left_out = data[row_indices,:]
-    testX = left_out[:,0:p-1]
-    testY = left_out[:,-1]  # same as [:,p]
+    test_row_indices = np.arange(i*num_test,(i+1)*num_test)  # the rows that for the hold-out set
+    testX = X[test_row_indices]
+    testY = Y[test_row_indices] 
     
-    temp = data
-    temp[row_indices,:] = []  # get rid of the left_out part
-    X = temp[]:,0:p-1]
-    Y = temp[:,-1]
+    trainX = np.delete(X,test_row_indices,axis=0)  # don't leave the hold-out set in the training set
+    trainY = np.delete(Y,test_row_indices)
     
     # use only the "good" predictors in the model
-    X1 = X[:,indices]
-    X1 = (X1 - mean(X1))/std(X1)  # normalize it (z-score)
-    testX = testX[:,indices]
-    testX = (testX-mean(testX))/std(testX)  # normalize
+    # trainX = trainX[::,indices[0]]
+    trainX = (trainX - np.mean(trainX,axis=0))/np.std(trainX,axis=0)  # normalize 
+    # testX = testX[::,indices[0]]
+    testX = (testX - np.mean(testX,axis=0))/np.std(testX,axis=0)  # normalize
     
     # test
     neigh = KNeighborsClassifier(n_neighbors=k)
-    neigh.fit(X1,Y)
+    neigh.fit(trainX,trainY)
     y_hat = neigh.predict(testX)
-    [~,percent(i)] = biterr(testY,y_hat)
+    percent[i] = sum(testY != y_hat)/num_test # print((1*(testY != y_hat))/num_test)
 
 
-pred_error_wrong_way = mean(percent)
+pred_error_wrong_way = np.mean(percent)
+print(pred_error_wrong_way)
 
 
 
