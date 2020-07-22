@@ -11,11 +11,11 @@ np.random.seed(0)
 # textbook's Gaussian random vectors
 
 num_data = 50
-p = 50
+p = 5000
 
 X = np.random.randn(num_data, p)   
 #Y = np.random.randint(low=0, high=2, size=num_data)  # 50% 0's, 50% 1's
-Y = np.array(25*[0] + 25*[1]) # check le messenger
+Y = np.array(int(num_data/2)*[0] + int(num_data/2)*[1]) # check le messenger
 
 # train_test_split we will need to use kfold instead
 #train_test_split(dataX, dataY, test_size=(valid_ratio+test_ratio), random_state=rand_seed)
@@ -31,7 +31,18 @@ k = 1  # how many nearest neighbors to use in the k-nearest neighbors
 # correct way of doing cross-validation
 #---------------------------------------------
 
-threshold = 0.01  # threshold used to determine which predictors will be left in the model
+threshold = 0.1  # threshold used to determine which predictors will be left in the model 
+# The threshold is how correlated no? So we find the correlation greater than threshold?
+# if so just do a slice of the rho array oh wait hmm - sort and slice = oh wait if we sort don't we lose the indices?
+# We'd have to sort a copy, select the last 10 percent and then find those in the og array. Yikes
+# aha
+# Side note, I found another tool that we can perhaps try for better erm integration across several computers
+# while not pretty, I'd still like to take a look just to see what it's like
+# I am tempted to jump to a full blown ide like pycharm which has variable explorers and everything
+
+# maybe should use top ten percent of predictors instead of thresholding
+# so don't have to keep changing threshold
+
 num_folds = 10
 percent = np.zeros(num_folds)
 num_test = int(num_data/num_folds)  # one_fold = num_test
@@ -80,14 +91,14 @@ for i in np.arange(0,num_folds):
     # retain only the "good" predictors in the model
     # "good" is taken to mean: corr coef >= threshold
 
-    # Zoinks:
-#   indices ahahaha
-#   array([[0]]) < an array of a list of a list!    hmm
-    indices = np.where(abs(rho)>=threshold)  # aight. The output of argwhere is not suitable for indexing arrays. For this purpose use nonzero(a) instead.
+
+    
+    indices = np.argsort(rho)[-int(len(rho)/10):]
+    #indices = np.where(abs(rho)>=threshold)  # aight. The output of argwhere is not suitable for indexing arrays. For this purpose use nonzero(a) instead.
     
     #temp = np.transpose(trainX) #this sorta fixes it
     # trainX = np.transpose(temp[indices])
-    trainX = trainX[::,indices[0]]  #fix...
+    trainX = trainX[::,indices]  #[0]]]
     trainX = (trainX - np.mean(trainX,axis=0))/np.std(trainX,axis=0)  # normalize
     # convert to z-score so that Euclidean distance doesn't
     # give more weight to predictors with a higher standard deviation
@@ -95,7 +106,7 @@ for i in np.arange(0,num_folds):
  
     # temp = np.transpose(testX) #this sorta fixes it
     # testX = np.transpose(temp[indices])
-    testX = testX[::,indices[0]]
+    testX = testX[::,indices] #[0]]
     testX = (testX - np.mean(testX,axis=0))/np.std(testX,axis=0)  # normalize
     
     
@@ -127,12 +138,13 @@ for j in np.arange(0,p):
     R = np.corrcoef(x,Y)  # returns a matrix
     rho[j] = R[0,1]
 
-indices = np.where(abs(rho)>=threshold)
+#indices = np.where(abs(rho)>=threshold)
+indices = np.argsort(rho)[-int(len(rho)/10):]
 
 # (erroneously) estimate generalization error by faux cross-validation
 
-X = X[::,indices[0]]  # it's ok to mute X now since this is the last time it's being used
-# I see that sleep eludes you too my friend
+X = X[::,indices]  # it's ok to mute X now since this is the last time it's being used
+
 # 
 # X and Y were already shuffled earlier
 
