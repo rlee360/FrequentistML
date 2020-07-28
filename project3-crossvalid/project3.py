@@ -20,7 +20,6 @@ Y = np.array(int(num_data/2)*[0] + int(num_data/2)*[1]) # check le messenger
 # train_test_split we will need to use kfold instead
 #train_test_split(dataX, dataY, test_size=(valid_ratio+test_ratio), random_state=rand_seed)
 
-
 #---------------------------------------------
 # Parameters for K-nearest neighbors
 
