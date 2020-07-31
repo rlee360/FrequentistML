@@ -5,7 +5,12 @@ from sklearn.model_selection import train_test_split, RandomizedSearchCV, GridSe
 from sklearn.metrics import confusion_matrix, accuracy_score
 import xgboost as xgb
 import matplotlib.pyplot as plt
+from pytictoc import TicToc
 import pickle
+import random
+
+random.seed(0)
+np.random.seed(0)
 
 # A simple helper function to generate train, validate, and test
 def train_valid_test_split(dataX, dataY, train_ratio, valid_ratio, test_ratio, rand_seed=0):
@@ -27,13 +32,22 @@ def predict_scores(mod, test_x, test_y):
     cmatrix = confusion_matrix(test_y, predictY, labels=[1, 0])
     score = accuracy_score(test_y, predictY)
     cm_key = np.array([['TP', 'TN'] , ['FP', 'FN']])
-    print(cm_key)
-    print(cmatrix)
+    print(np.c_[cm_key,cmatrix])
     print(score)
 
-def xgb_class_grid(param_dict, cv_func, train_x, train_y):
-    clf = xgb.XGBClassifier()#tree_method='gpu_hist', predictor='gpu_predictor')
-    mod = cv_func(clf, param_dict, n_jobs=-1, scoring='accuracy', cv=10)
+def xgb_clf(param_dict, cv_func, train_x, train_y, num_folds=10, gpu=None, rand_seed=0):
+    if gpu:
+        clf = xgb.XGBClassifier(tree_method='gpu_hist', predictor='gpu_predictor')
+        if cv_func == GridSearchCV:
+            mod = cv_func(clf, param_dict, scoring='accuracy', cv=num_folds)
+        elif cv_func == RandomizedSearchCV:
+            mod = cv_func(clf, param_dict, scoring='accuracy', cv=num_folds, random_state=rand_seed)
+    else:
+        clf = xgb.XGBClassifier()  # tree_method='gpu_hist', predictor='gpu_predictor')
+        if cv_func == GridSearchCV:
+            mod = cv_func(clf, param_dict, n_jobs=-1, scoring='accuracy', cv=num_folds)
+        elif cv_func == RandomizedSearchCV:
+            mod = cv_func(clf, param_dict, n_jobs=-1, scoring='accuracy', cv=num_folds, random_state=rand_seed)
     mod.fit(train_x, train_y)
     print(mod.best_params_)
 
@@ -77,7 +91,7 @@ print(y[:5])
 #         print(arr)
 
 #use the np arrays to get the splits
-trainX, validX, testX, trainY, validY, testY = train_valid_test_split(X, y, 0.8, 0.1, 0.1)
+trainX, _, testX, trainY, _, testY = train_valid_test_split(X, y, 0.9, 0.0, 0.1)
 #xgb_class_grid()
 #
 # plt.bar(clean_data.columns.values[1:], model.feature_importances_)
@@ -86,21 +100,29 @@ trainX, validX, testX, trainY, validY, testY = train_valid_test_split(X, y, 0.8,
 
 #reconvert back into dataframe and get dMatrices
 trainX = pd.DataFrame(trainX, columns=clean_data.columns[:-1])
-validX = pd.DataFrame(validX, columns=clean_data.columns[:-1])
+#validX = pd.DataFrame(validX, columns=clean_data.columns[:-1])
 testX = pd.DataFrame(testX, columns=clean_data.columns[:-1])
 
+# best performance:{'eta': 0.31000000000000005, 'gamma': 0.6, 'lambda': 4.299999999999999}
+
 params = {
-        "eta": list(np.arange(0.01,0.4,0.1)),
+        "nthread": [-1],
+        "eta": list(np.arange(0,10,0.01)),
         # "max_depth": [3, 4, 5, 6, 8, 10, 12, 15],
         # "min_child_weight": [1, 3, 5, 7],
-        "lambda": list(np.arange(4, 4.8, 0.1)),
-        "gamma": list(np.arange(0.5,0.7,0.1))
-        # "colsample_bytree": [0.25, 0.5, 0.75, 1]
+        "lambda": list(np.arange(0, 10, 0.05)), # [4.7]
+        "gamma": list(np.arange(0, 10, 0.05)),
+        #"colsample_bytree": list(np.arange(0,1.01,0.1)), #[0.25, 0.5, 0.75, 1]
 }
 
-classifier = xgb_class_grid(params, GridSearchCV, trainX, trainY)
+t = TicToc()
+
+t.tic()
+classifier = xgb_clf(params, RandomizedSearchCV, trainX, trainY)
+t.toc()
+
 xgb.plot_importance(classifier)
-plt.show()
+plt.savefig('out.pdf')
 
 predict_scores(classifier, testX, testY)
 
@@ -109,9 +131,11 @@ pickle.dump(classifier, open('class.p','wb'))
 classifier.save_model('classifier.json')
 
 
-
-model = xgb.XGBClassifier()
+t2=TicToc()
+t2.tic()
+model = xgb.XGBClassifier() # tree_method='gpu_hist', predictor='gpu_predictor')
 model.fit(trainX, trainY)
+t2.toc()
 predict_scores(model, testX, testY)
 
 
