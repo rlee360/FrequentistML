@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split, RandomizedSearchCV, GridSearchCV
 from sklearn.metrics import confusion_matrix, accuracy_score
@@ -13,11 +14,11 @@ random.seed(0)
 np.random.seed(0)
 
 # A simple helper function to generate train, validate, and test
-def train_valid_test_split(dataX, dataY, train_ratio, valid_ratio, test_ratio, rand_seed=0):
+def train_valid_test_split(data_x, data_y, train_ratio, valid_ratio, test_ratio, rand_seed=0):
     if(train_ratio + valid_ratio + test_ratio) > 1:
         return None, None, None, None, None, None
     else:
-        train_x, valid_x, train_y, valid_y = train_test_split(dataX, dataY, test_size=(valid_ratio + test_ratio), random_state=rand_seed)
+        train_x, valid_x, train_y, valid_y = train_test_split(data_x, data_y, test_size=(valid_ratio + test_ratio), random_state=rand_seed)
         if not valid_ratio == 0:
             valid_x, test_x, valid_y, test_y = train_test_split(valid_x, valid_y, test_size=(test_ratio / (test_ratio + valid_ratio)), random_state=rand_seed)
         else:
@@ -27,31 +28,47 @@ def train_valid_test_split(dataX, dataY, train_ratio, valid_ratio, test_ratio, r
             valid_y = None
         return train_x, valid_x, test_x, train_y, valid_y, test_y
 
-def predict_scores(mod, test_x, test_y):
-    predictY = mod.predict(test_x)
-    cmatrix = confusion_matrix(test_y, predictY, labels=[1, 0])
-    score = accuracy_score(test_y, predictY)
+def predict_scores(clf_name, mod, test_x, test_y):
+    predict_y = mod.predict(test_x)
+    cmatrix = confusion_matrix(test_y, predict_y, labels=[1, 0])
+    score = accuracy_score(test_y, predict_y)
     cm_key = np.array([['TP', 'TN'] , ['FP', 'FN']])
+    print(clf_name, "confusion matrix:")
     print(np.c_[cm_key,cmatrix])
-    print(score)
+    print(clf_name, 'accuracy percentage: ', score*100)
 
-def xgb_clf(param_dict, cv_func, train_x, train_y, num_folds=10, gpu=None, rand_seed=0):
+def forest_clf(method, param_dict, cv_func, train_x, train_y, num_folds=10, rand_seed=0, num_iter=100):
+    clf = method()
+    if cv_func == GridSearchCV:
+        cv_model = cv_func(clf, param_dict, n_jobs=-1, scoring='accuracy', cv=num_folds)
+    elif cv_func == RandomizedSearchCV:
+        cv_model = cv_func(clf, param_dict, n_jobs=-1, scoring='accuracy', cv=num_folds, random_state=rand_seed, n_iter=num_iter)
+    cv_model.fit(train_x, train_y)
+    print('Best params', cv_model.best_params_)
+    print('Best score:', cv_model.best_score_)
+
+    clf.set_params(**cv_model.best_params_)
+    clf.fit(train_x, train_y)
+    return clf
+
+def xgb_clf(param_dict, cv_func, train_x, train_y, num_folds=10, gpu=None, rand_seed=0, num_iter=100):
     if gpu:
         clf = xgb.XGBClassifier(tree_method='gpu_hist', predictor='gpu_predictor')
         if cv_func == GridSearchCV:
-            mod = cv_func(clf, param_dict, scoring='accuracy', cv=num_folds)
+            cv_model = cv_func(clf, param_dict, scoring='accuracy', cv=num_folds)
         elif cv_func == RandomizedSearchCV:
-            mod = cv_func(clf, param_dict, scoring='accuracy', cv=num_folds, random_state=rand_seed)
+            cv_model = cv_func(clf, param_dict, scoring='accuracy', cv=num_folds, random_state=rand_seed, n_iter=num_iter)
     else:
-        clf = xgb.XGBClassifier()  # tree_method='gpu_hist', predictor='gpu_predictor')
+        clf = xgb.XGBClassifier()
         if cv_func == GridSearchCV:
-            mod = cv_func(clf, param_dict, n_jobs=-1, scoring='accuracy', cv=num_folds)
+            cv_model = cv_func(clf, param_dict, n_jobs=-1, scoring='accuracy', cv=num_folds)
         elif cv_func == RandomizedSearchCV:
-            mod = cv_func(clf, param_dict, n_jobs=-1, scoring='accuracy', cv=num_folds, random_state=rand_seed)
-    mod.fit(train_x, train_y)
-    print(mod.best_params_)
+            cv_model = cv_func(clf, param_dict, n_jobs=-1, scoring='accuracy', cv=num_folds, random_state=rand_seed, n_iter=num_iter)
+    cv_model.fit(train_x, train_y)
+    print('Best params', cv_model.best_params_)
+    print('Best score:', cv_model.best_score_)
 
-    clf.set_params(**mod.best_params_)
+    clf.set_params(**cv_model.best_params_)
     clf.fit(train_x, train_y)
     return clf
 
@@ -78,7 +95,7 @@ scaler = MinMaxScaler(feature_range=(0,1))
 scaler.fit(clean_data)
 clean_data_np = scaler.transform(clean_data)
 
-# grab the feature columns
+# grab the feature columns -
 # X = clean_data.iloc[:, :-1].to_numpy()
 # y = clean_data['cardio'].to_numpy()
 X = clean_data_np[::, :-1]
@@ -91,22 +108,77 @@ print(y[:5])
 #         print(arr)
 
 #use the np arrays to get the splits
-trainX, _, testX, trainY, _, testY = train_valid_test_split(X, y, 0.9, 0.0, 0.1)
+trainX, _, testX, trainY, _, testY = train_valid_test_split(X, y, 0.9, 0, 0.1)
+
+# forest_params = {
+#     'n_estimators' : [10,100,1000],
+#     'criterion' : ['gini','entropy'],
+#     'max_depth' : list(range(1,11,1)),
+#     'min_samples_split' : [2,3,4],
+#     'min_samples_leaf' :  [2,3,4],
+#     #'n_jobs' : [-1],
+# }
+
+# {'n_estimators': 100, 'min_samples_split': 4, 'min_samples_leaf': 2, 'max_depth': 10, 'criterion': 'gini'}
+
+forest_params = {
+    'n_estimators' : [1000],
+    'criterion' : ['entropy'],
+    'max_depth' : [8],
+    #'min_samples_split' : [2],
+    #'min_samples_leaf' :  [2],
+    #'n_jobs' : [-1],
+}
+
+t = TicToc()
+t.tic()
+forest_model = forest_clf(RandomForestClassifier, forest_params, GridSearchCV, trainX, trainY)
+t.toc()
+
+predict_scores('Random Forest', forest_model, testX, testY)
+
+pickle.dump(forest_model, open('random_forest_classifier.p', 'wb'))
+#
+# # mmodel = RandomForestClassifier(criterion='entropy', max_depth=8, n_estimators=1000, n_jobs=16, random_state=0)
+# # mmodel.fit(trainX, trainY)
+# # predictions = mmodel.predict(testX)
+# # sscore = accuracy_score(testY, predictions)
+# # print(sscore)
+
+fig, ax = plt.subplots()
+
+forest_feature_ind = np.argsort(forest_model.feature_importances_)
+forest_feature_ind = forest_feature_ind[::-1]
+forest_feature_name = np.array(clean_data.columns.values[:-1])
+forest_feature_name = forest_feature_name[forest_feature_ind]
+forest_feature_val = forest_model.feature_importances_[forest_feature_ind]
+
+ax.barh(forest_feature_name, forest_feature_val)
+ax.invert_yaxis()
+ax.set_xlabel('Feature Importance')
+ax.set_ylabel('Features')
+ax.set_title('Feature Importance of Random Forest Classifier')
+# plt.xticks(rotation=45, ha="right")
+plt.grid()
+plt.show()
+
+
 #xgb_class_grid()
 #
 # plt.bar(clean_data.columns.values[1:], model.feature_importances_)
 # plt.xticks(rotation=45, ha="right")
 # plt.show()
 
-#reconvert back into dataframe and get dMatrices
+#reconvert back into dataframe
 trainX = pd.DataFrame(trainX, columns=clean_data.columns[:-1])
 #validX = pd.DataFrame(validX, columns=clean_data.columns[:-1])
 testX = pd.DataFrame(testX, columns=clean_data.columns[:-1])
 
-# best performance:{'eta': 0.31000000000000005, 'gamma': 0.6, 'lambda': 4.299999999999999}
 
-params = {
-        "nthread": [-1],
+xgb_params = {
+        "booster": ['dart'],
+        "objective": ["binary:logistic", "reg:tweedie", "reg:gamma", "rank:pairwise"], #try various objectives
+        "nthread": [-1], #use as many threads as available
         "eta": list(np.arange(0,10,0.01)),
         # "max_depth": [3, 4, 5, 6, 8, 10, 12, 15],
         # "min_child_weight": [1, 3, 5, 7],
@@ -115,29 +187,46 @@ params = {
         #"colsample_bytree": list(np.arange(0,1.01,0.1)), #[0.25, 0.5, 0.75, 1]
 }
 
-t = TicToc()
+#{'objective': 'binary:logistic', 'nthread': -1, 'lambda': 2.0500000000000003, 'gamma': 3.4000000000000004, 'eta': 0.02, 'booster': 'dart'}
+# best performance:{'eta': 0.31000000000000005, 'gamma': 0.6, 'lambda': 4.299999999999999}
+best_xgb_params = {
+    'objective' : 'binary:logistic',
+    'eta' : 0.31,
+    'gamma' : 0.6,
+    'lambda' : 4.29,
+}
 
-t.tic()
-classifier = xgb_clf(params, RandomizedSearchCV, trainX, trainY)
-t.toc()
+t1 = TicToc()
 
-xgb.plot_importance(classifier)
-plt.savefig('out.pdf')
+t1.tic()
+xgb_model = xgb_clf(xgb_params, RandomizedSearchCV, trainX, trainY)
+t1.toc()
 
-predict_scores(classifier, testX, testY)
+pickle.dump(xgb_model, open('xgb_class.p', 'wb'))
 
-pickle.dump(classifier, open('class.p','wb'))
-
-classifier.save_model('classifier.json')
+xgb_model.save_model('classifier.json')
+predict_scores("xgb RandomizedSearchCV model", xgb_model, testX, testY)
+xgb.plot_importance(xgb_model, importance_type='gain')
+plt.show()
 
 
 t2=TicToc()
 t2.tic()
-model = xgb.XGBClassifier() # tree_method='gpu_hist', predictor='gpu_predictor')
-model.fit(trainX, trainY)
+best_xgb_model = xgb.XGBClassifier(**best_xgb_params)
+best_xgb_model.fit(trainX, trainY)
 t2.toc()
-predict_scores(model, testX, testY)
+predict_scores("best xgb params found using GridSearchCV", best_xgb_model, testX, testY)
+xgb.plot_importance(best_xgb_model,importance_type='gain')
+plt.show()
 
+t3=TicToc()
+t3.tic()
+vanilla_xgb_model = xgb.XGBClassifier()
+vanilla_xgb_model.fit(trainX, trainY)
+t3.toc()
+predict_scores("Vanilla xgb", vanilla_xgb_model, testX, testY)
+xgb.plot_importance(vanilla_xgb_model,importance_type='gain')
+plt.show()
 
 
 #
